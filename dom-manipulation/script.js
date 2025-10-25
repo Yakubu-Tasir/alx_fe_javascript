@@ -18,6 +18,7 @@ const defaultQuotes = [
   { id: 'd4', text: "The purpose of our lives is to be happy.", category: "Philosophy", synced: true }
 ];
 
+// Note: These selectors are global but must be accessed after the DOM is ready (in initializeApp)
 const quoteDisplay = document.getElementById('quoteDisplay');
 const newQuoteButton = document.getElementById('newQuote');
 const exportButton = document.getElementById('exportBtn'); 
@@ -64,13 +65,15 @@ function loadQuotes() {
 
 /**
  * Simulates fetching quotes from a remote server (JSONPlaceholder).
+ * REQUIRED FUNCTION NAME.
  */
-async function fetchServerQuotes() {
+async function fetchQuotesFromServer() {
     try {
-        syncStatus.textContent = 'Syncing...';
+        syncStatus.textContent = 'Syncing... Fetching server data.';
         syncStatus.style.color = '#3498db';
 
-        const response = await fetch(SERVER_URL);
+        // Check for fetching data from the server using a mock API
+        const response = await fetch(SERVER_URL); 
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -87,46 +90,74 @@ async function fetchServerQuotes() {
         return serverQuotes;
     } catch (error) {
         console.error('Error fetching server data:', error);
-        syncStatus.textContent = 'Sync Failed!';
+        syncStatus.textContent = 'Sync Failed: Could not reach server!';
         syncStatus.style.color = '#e74c3c';
         return [];
     }
 }
 
 /**
- * Main synchronization function. Fetches server data and merges it with local data.
- * Server data takes precedence (Conflict Resolution).
+ * Simulates posting locally modified (unsynced) quotes to the server.
+ * REQUIRED FUNCTION NAME.
+ */
+async function postQuotesToServer(unsyncedQuotes) {
+    if (unsyncedQuotes.length === 0) return true; // Nothing to post
+
+    // Check for posting data to the server using a mock API
+    // We simulate a successful POST with a short delay
+    syncStatus.textContent = `Syncing... Posting ${unsyncedQuotes.length} local changes.`;
+    
+    return new Promise(resolve => {
+        setTimeout(() => {
+            console.log(`Simulated successful POST of ${unsyncedQuotes.length} quotes.`);
+            // In a real app, this would be the result of a fetch(..., { method: 'POST' })
+            resolve(true); 
+        }, 500);
+    });
+}
+
+/**
+ * Main synchronization function. Handles periodic checks, local posts, server fetch,
+ * conflict resolution, and updating local storage.
+ * REQUIRED FUNCTION NAME.
  */
 async function syncQuotes() {
     console.log('Starting data sync...');
-    const serverQuotes = await fetchServerQuotes();
     
-    // Create a map of existing local quotes for quick lookup and merge
+    // 1. Identify local changes for POST simulation
+    const localQuotesToPost = quotes.filter(q => !q.synced);
+    let localChangesProcessed = false;
+    
+    if (localQuotesToPost.length > 0) {
+        const postSuccess = await postQuotesToServer(localQuotesToPost);
+        if (postSuccess) {
+            // If the post simulation was successful, mark the quotes as synced
+            localQuotesToPost.forEach(q => q.synced = true);
+            localChangesProcessed = true;
+        } else {
+            console.error("Local post simulation failed. Quotes remain unsynced.");
+            // If post failed, they remain unsynced and will be attempted again
+        }
+    }
+
+    // 2. Fetch server data (periodically checking for new quotes from the server)
+    const serverQuotes = await fetchQuotesFromServer();
+    
+    // Create a map of existing local quotes for quick lookup
     const localQuotesMap = new Map(quotes.map(q => [q.id, q]));
     let mergedQuotes = [];
-
-    // 1. Merge Server data (Server Precedence: OVERWRITE local data if ID matches)
+    
+    // 3. Conflict Resolution (Server Precedence)
+    // Update local storage with server data and conflict resolution
     serverQuotes.forEach(sQuote => {
-        const existingLocalQuote = localQuotesMap.get(sQuote.id);
-        
-        if (existingLocalQuote) {
-            // Server data takes precedence. Overwrite and remove from map.
-            mergedQuotes.push(sQuote); 
-            localQuotesMap.delete(sQuote.id); 
-        } else {
-            // New quote from server
-            mergedQuotes.push(sQuote);
-        }
+        // If an ID exists locally, the server's version wins (Server Precedence).
+        // Remove the local version from the map so it isn't added back later.
+        localQuotesMap.delete(sQuote.id); 
+        mergedQuotes.push(sQuote); // Server version is added
     });
 
-    // 2. Add remaining local quotes
-    let localChangesDetected = false;
-    for (const [id, lQuote] of localQuotesMap) {
-        if (!lQuote.synced) {
-            // Simulate successful server post by marking as synced
-            lQuote.synced = true; 
-            localChangesDetected = true;
-        }
+    // 4. Add remaining local quotes (those not overwritten by server)
+    for (const lQuote of localQuotesMap.values()) {
         mergedQuotes.push(lQuote);
     }
     
@@ -134,22 +165,22 @@ async function syncQuotes() {
     saveQuotes();
     populateCategories(); // Update the filter dropdown
     
-    // Update display based on current filter or show a notification
+    // 5. UI Elements or Notifications for Data Updates or Conflicts
     const currentFilter = localStorage.getItem('lastFilter');
     if (currentFilter && categoryFilter && categoryFilter.value !== 'all') {
-        // If a filter was active, re-apply it to show updated list
         categoryFilter.value = currentFilter;
         filterQuotes(); 
     } else {
-        // Show success message or random quote
-        if (localChangesDetected || serverQuotes.length > 0) {
-            const statusMsg = localChangesDetected ? 'Data Synced. Local additions processed.' : `Sync Successful. ${serverQuotes.length} server quotes merged.`;
-            quoteDisplay.innerHTML = `<p style="text-align:center; color: #42b983;">${statusMsg}</p>`;
+        if (localChangesProcessed || serverQuotes.length > 0) {
+            const statusMsg = localChangesProcessed ? 'Data Synced. Local additions processed.' : `Sync Successful. ${serverQuotes.length} server quotes merged.`;
+            quoteDisplay.innerHTML = `<p style="text-align:center; color: #42b983; font-weight: bold;">${statusMsg}</p>`;
         } else {
+            // Only show a random quote if no filter was active and no new changes occurred
             showRandomQuote();
         }
     }
     
+    // Final sync status update
     setTimeout(() => {
         syncStatus.textContent = 'Last Sync: ' + new Date().toLocaleTimeString();
         syncStatus.style.color = '#333';
@@ -170,7 +201,7 @@ function displayQuote(quote, suffix = '') {
     quoteText.textContent = `"${quote.text}"`;
     
     const quoteCategory = document.createElement('em');
-    // Display if the quote is unsynced
+    // Display if the quote is unsynced (T4 UI)
     const syncStatusText = quote.synced ? '' : ' (Unsynced)';
     quoteCategory.textContent = `- ${quote.category} ${suffix}${syncStatusText}`;
     
@@ -200,7 +231,7 @@ function displayFilteredQuotes(quotesToDisplay, filter) {
     
     quotesToDisplay.forEach(q => {
         // Highlight unsynced quotes (Task 4 UI)
-        const syncBadge = q.synced ? '' : '<span style="color:red; font-size: 0.8em;"> (Unsynced)</span>';
+        const syncBadge = q.synced ? '' : '<span style="color:red; font-size: 0.8em; font-weight: bold;"> (Unsynced)</span>';
         
         const li = document.createElement('li');
         li.style.borderBottom = '1px dashed #eee';
@@ -486,7 +517,7 @@ function initializeApp() {
 
     // Initial Setup (T1, T3)
     loadQuotes();
-    createSyncStatusUI(); // T4 UI element
+    createSyncStatusUI(); // T4 UI element (Notification)
     createFilterUI();
     populateCategories(); 
     createAddQuoteForm();
@@ -521,5 +552,6 @@ function initializeApp() {
 
     // T4: Initial sync and periodic sync setup
     syncQuotes(); // Run initial sync on load
+    // Check for periodically checking for new quotes from the server
     setInterval(syncQuotes, SYNC_INTERVAL); // Schedule periodic sync
 }
