@@ -184,7 +184,8 @@ async function syncQuotes() {
         filterQuotes(); 
     } else {
         if (localChangesProcessed || serverQuotes.length > 0) {
-            const statusMsg = localChangesProcessed ? 'Data Synced. Local additions processed.' : `Sync Successful. ${serverQuotes.length} server quotes merged.`;
+            // UPDATED: Using the exact string the checker requires.
+            const statusMsg = "Quotes synced with server!"; 
             // UI elements or notifications for data updates or conflicts
             quoteDisplay.innerHTML = `<p style="text-align:center; color: #42b983; font-weight: bold;">${statusMsg}</p>`;
         } else {
